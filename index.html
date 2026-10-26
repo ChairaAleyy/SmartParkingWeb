@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HotWheels: ULTIMATE GARAGE - Robotic Smart Parking</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome & Google Fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Teachable Machine & TensorFlow.js Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        hwBlue: '#002277',       
+                        hwBlueCard: '#001959',   
+                        hwOrange: '#FF5500',     
+                        hwOrangeDark: '#CC4400', 
+                        hwYellow: '#FFCC00',     
+                    },
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        poppins: ['Poppins', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #002277;
+            min-height: 100vh;
+        }
+
+        .led-green {
+            background-color: #10B981;
+            box-shadow: 0 0 12px #10B981, 0 0 22px #10B981;
+        }
+        .led-red {
+            background-color: #EF4444;
+            box-shadow: 0 0 12px #EF4444, 0 0 22px #EF4444;
+        }
+
+        .vms-screen {
+            background-color: #0b0f17;
+            border: 2px solid #FF5500;
+            box-shadow: 0 0 20px rgba(255, 85, 0, 0.4), inset 0 0 12px rgba(0, 0, 0, 0.9);
+        }
+
+        .hw-card-blue {
+            background: #001959;
+            border: 2px solid #0044cc;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        #webcam-container canvas {
+            width: 100% !important;
+            height: 200px !important;
+            object-fit: cover;
+            border-radius: 0.75rem;
+        }
+
+        /* OVERLAY KOTAK DETEKSI AI */
+        .ai-bounding-box {
+            border: 3px solid #FF5500;
+            box-shadow: 0 0 15px rgba(255, 85, 0, 0.8), inset 0 0 15px rgba(255, 85, 0, 0.3);
+            animation: pulse-border 0.6s infinite alternate;
+        }
+
+        @keyframes pulse-border {
+            0% { border-color: #FF5500; background-color: rgba(255, 85, 0, 0.1); }
+            100% { border-color: #FFCC00; background-color: rgba(255, 204, 0, 0.2); }
+        }
+
+        /* EFEK PERTANDA VISUAL GERBANG TERBUKA */
+        .gate-barrier-icon {
+            transition: transform 0.5s ease, color 0.5s ease;
+        }
+        .gate-is-open {
+            transform: rotate(-70deg);
+            color: #10B981 !important;
+        }
+
+        .gate-card-active {
+            border-color: #10B981 !important;
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.5), inset 0 0 15px rgba(16, 185, 129, 0.2);
+        }
+    </style>
+</head>
+<body class="text-white pb-12">
+
+    <!-- HEADER & VMS BOARD -->
+    <header class="bg-gradient-to-r from-hwOrangeDark via-hwOrange to-hwYellow p-4 shadow-2xl border-b-4 border-white sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-fire-flame-curved text-yellow-300 text-4xl animate-bounce"></i>
+                <div>
+                    <h1 class="font-orbitron font-black text-2xl md:text-3xl italic tracking-wider text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                        HOTWHEELS: ULTIMATE GARAGE
+                    </h1>
+                    <p class="font-orbitron text-xs text-yellow-200 tracking-widest font-bold">ROBOTIC SENSOR & AI PARKING SYSTEM</p>
+                </div>
+            </div>
+
+            <!-- VMS BOARD -->
+            <div class="vms-screen rounded-xl p-3 px-6 flex items-center gap-6">
+                <div class="text-left">
+                    <span class="block font-orbitron text-[10px] text-gray-400 tracking-widest">OUTDOOR VMS DISPLAY</span>
+                    <span id="vms-status" class="font-orbitron font-bold text-base text-green-400 animate-pulse">AVAILABLE</span>
+                    <div id="vms-slots-list" class="text-[10px] font-orbitron text-yellow-300 truncate max-w-[180px]">Free: A1, A2</div>
+                </div>
+                <div class="h-10 w-0.5 bg-gray-800"></div>
+                <div class="text-center">
+                    <span class="block font-orbitron text-[10px] text-gray-400">SLOT KOSONG</span>
+                    <span id="vms-count" class="font-orbitron font-black text-2xl text-hwYellow">2 / 2</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 mt-6 space-y-6">
+
+        <!-- STATS ANALYTICS -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="hw-card-blue p-4 rounded-2xl flex items-center justify-between shadow-xl">
+                <div>
+                    <p class="text-xs text-blue-200 font-bold uppercase">Total Kas/Pendapatan</p>
+                    <h3 id="stat-revenue" class="font-orbitron font-black text-2xl text-green-400">Rp 0</h3>
+                </div>
+                <div class="w-12 h-12 bg-black/40 text-green-400 rounded-xl flex items-center justify-center text-2xl border border-blue-500/30">
+                    <i class="fa-solid fa-wallet"></i>
+                </div>
+            </div>
+
+            <div class="hw-card-blue p-4 rounded-2xl flex items-center justify-between shadow-xl">
+                <div>
+                    <p class="text-xs text-blue-200 font-bold uppercase">Total Kendaraan</p>
+                    <h3 id="stat-total-cars" class="font-orbitron font-black text-2xl text-hwYellow">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-black/40 text-hwYellow rounded-xl flex items-center justify-center text-2xl border border-blue-500/30">
+                    <i class="fa-solid fa-car-side"></i>
+                </div>
+            </div>
+
+            <div class="hw-card-blue p-4 rounded-2xl flex items-center justify-between shadow-xl">
+                <div>
+                    <p class="text-xs text-blue-200 font-bold uppercase">Sedang Parkir</p>
+                    <h3 id="stat-active-sessions" class="font-orbitron font-black text-2xl text-hwOrange">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-black/40 text-hwOrange rounded-xl flex items-center justify-center text-2xl border border-blue-500/30">
+                    <i class="fa-solid fa-square-parking"></i>
+                </div>
+            </div>
+
+            <div class="hw-card-blue p-4 rounded-2xl flex items-center justify-between shadow-xl">
+                <div>
+                    <p class="text-xs text-blue-200 font-bold uppercase">Status micro:bit</p>
+                    <h3 id="stat-microbit-status" class="font-orbitron font-bold text-xs text-yellow-200">Belum tersambung</h3>
+                </div>
+                <div class="w-12 h-12 bg-black/40 text-blue-400 rounded-xl flex items-center justify-center text-2xl border border-blue-500/30">
+                    <i class="fa-solid fa-microchip"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- FITUR SENSOR GATE IN & GATE OUT (PERTANDA TERBUKA INTEGRASI HARDWARE) -->
+        <section class="hw-card-blue rounded-2xl p-5 shadow-2xl space-y-4">
+            <h2 class="font-orbitron font-bold text-base text-yellow-300 flex items-center gap-2">
+                <i class="fa-solid fa-torii-gate text-hwOrange"></i> KONTROL GERBANG & SENSOR SENSING (GATE IN & OUT)
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                <!-- KONTROL & PERTANDA GATE IN -->
+                <div id="card-gate-in" class="bg-slate-950/80 p-4 rounded-xl border border-blue-500/30 flex flex-col justify-between space-y-3 transition-all duration-300">
+                    <div class="flex justify-between items-center">
+                        <span class="font-orbitron font-bold text-xs text-white">GATE IN (GERBANG MASUK)</span>
+                        <span id="badge-gate-in" class="bg-red-950 text-red-400 border border-red-700 font-orbitron font-bold text-[10px] px-2 py-0.5 rounded">
+                            GERBANG TERTUTUP
+                        </span>
+                    </div>
+
+                    <div class="bg-black/60 rounded-lg p-3 flex items-center justify-center gap-4 border border-blue-900/50 relative overflow-hidden">
+                        <i id="icon-gate-in" class="fa-solid fa-road-barrier text-4xl text-red-500 gate-barrier-icon"></i>
+                        <div class="text-left">
+                            <span class="text-[10px] text-gray-400 font-orbitron block">DETEKSI SENSOR IR / AI</span>
+                            <span id="text-gate-in-desc" class="text-xs font-bold text-yellow-200">Menunggu Mobil Datang...</span>
+                        </div>
+                    </div>
+
+                    <button onclick="triggerGateInSensor()" class="w-full bg-hwOrange hover:bg-hwOrangeDark text-white font-orbitron font-bold text-xs py-2.5 rounded-lg transition shadow flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-sensor"></i> SIMULASI SENSOR IR GATE IN (DETEKSI MASUK)
+                    </button>
+                </div>
+
+                <!-- KONTROL & PERTANDA GATE OUT -->
+                <div id="card-gate-out" class="bg-slate-950/80 p-4 rounded-xl border border-blue-500/30 flex flex-col justify-between space-y-3 transition-all duration-300">
+                    <div class="flex justify-between items-center">
+                        <span class="font-orbitron font-bold text-xs text-white">GATE OUT (GERBANG KELUAR)</span>
+                        <span id="badge-gate-out" class="bg-red-950 text-red-400 border border-red-700 font-orbitron font-bold text-[10px] px-2 py-0.5 rounded">
+                            GERBANG TERTUTUP
+                        </span>
+                    </div>
+
+                    <div class="bg-black/60 rounded-lg p-3 flex items-center justify-center gap-4 border border-blue-900/50">
+                        <i id="icon-gate-out" class="fa-solid fa-road-barrier text-4xl text-red-500 gate-barrier-icon"></i>
+                        <div class="text-left">
+                            <span class="text-[10px] text-gray-400 font-orbitron block">DETEKSI SENSOR IR KELUAR</span>
+                            <span id="text-gate-out-desc" class="text-xs font-bold text-yellow-200">Menunggu Sensor Melintas...</span>
+                        </div>
+                    </div>
+
+                    <button onclick="triggerIrExitSensor()" class="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-orbitron font-bold text-xs py-2.5 rounded-lg transition shadow flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-sensor text-lg"></i> SIMULASI SENSOR IR GATE OUT (MOBIL KELUAR)
+                    </button>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- AI CAMERA & MICRO:BIT INTEGRATION -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- 1. KAMERA DETEKSI MOBIL DENGAN VISUAL OVERLAY -->
+            <div class="lg:col-span-7 hw-card-blue rounded-2xl p-5 shadow-2xl space-y-4">
+                <h2 class="font-orbitron font-bold text-base text-yellow-300 flex items-center justify-between">
+                    <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-camera text-hwOrange"></i> Kamera AI Gate IN (Visual Detector)
+                    </span>
+                    <span class="text-[10px] font-orbitron bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded">
+                        <i class="fa-solid fa-volume-xmark"></i> Mode Hening
+                    </span>
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                    
+                    <!-- KAMERA FEED & OVERLAY DETEKSI -->
+                    <div class="md:col-span-6 bg-slate-950 rounded-xl min-h-[200px] flex flex-col items-center justify-center p-2 border border-blue-500/50 text-center relative overflow-hidden">
+                        <div id="webcam-container" class="w-full h-full flex items-center justify-center relative"></div>
+                        
+                        <!-- VISUAL BOUNDING BOX OVERLAY -->
+                        <div id="ai-overlay" class="absolute inset-2 pointer-events-none hidden flex-col justify-between p-2 rounded-xl ai-bounding-box">
+                            <div class="flex justify-between items-start">
+                                <span id="ai-label-tag" class="bg-hwOrange text-white font-orbitron font-black text-[10px] px-2 py-0.5 rounded shadow flex items-center gap-1 animate-bounce">
+                                    <i class="fa-solid fa-bullhorn"></i> MOBIL TERDETEKSI!
+                                </span>
+                                <span id="ai-percent-tag" class="bg-black/90 text-yellow-300 font-orbitron font-bold text-[10px] px-2 py-0.5 rounded border border-yellow-400">
+                                    0%
+                                </span>
+                            </div>
+                            
+                            <div class="text-center bg-black/80 backdrop-blur-sm py-1.5 rounded-lg border border-yellow-400/50">
+                                <span class="font-orbitron text-[10px] text-yellow-300 font-black tracking-wider block animate-pulse">
+                                    <i class="fa-solid fa-door-open text-green-400"></i> GATE IN DIKIRIM SINYAL BUKA!
+                                </span>
+                            </div>
+                        </div>
+
+                        <span id="cam-placeholder" class="text-xs text-slate-400 font-medium">Kamera belum aktif</span>
+                    </div>
+
+                    <div class="md:col-span-6 space-y-3">
+                        <div id="model-status-badge" class="bg-slate-950 text-slate-300 text-xs px-3 py-1.5 rounded-lg font-semibold border border-slate-700">
+                            Model belum dimuat
+                        </div>
+
+                        <!-- LIVE METER AKURASI AI -->
+                        <div class="bg-slate-950/80 p-2.5 rounded-xl border border-blue-500/30 space-y-1">
+                            <div class="flex justify-between text-[10px] font-orbitron font-bold">
+                                <span class="text-blue-200">Akurasi Deteksi AI:</span>
+                                <span id="confidence-text" class="text-hwYellow">0%</span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+                                <div id="confidence-bar" class="bg-gradient-to-r from-hwOrange to-hwYellow h-full w-0 transition-all duration-200"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="startCamera()" class="flex-1 bg-hwOrange hover:bg-hwOrangeDark text-white font-bold text-xs py-2 px-3 rounded-lg shadow transition">
+                                Nyalakan kamera
+                            </button>
+                            <button onclick="stopCamera()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2 px-3 rounded-lg border border-slate-600">
+                                Matikan kamera
+                            </button>
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] text-blue-200 mb-0.5">URL Model Teachable Machine</label>
+                            <input type="text" id="model-url-input" placeholder="Tempel URL model di sini" class="w-full bg-slate-950 border border-blue-500/50 rounded-lg p-1.5 text-xs text-white focus:outline-none focus:border-yellow-400">
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] text-blue-200 mb-0.5">Nama Class "Mobil"</label>
+                            <input type="text" id="target-class-input" value="mobil" class="w-full bg-slate-950 border border-blue-500/50 rounded-lg p-1.5 text-xs text-white focus:outline-none focus:border-yellow-400">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. KONEKSI MICRO:BIT -->
+            <div class="lg:col-span-5 hw-card-blue rounded-2xl p-5 shadow-2xl space-y-4 flex flex-col justify-between">
+                <div>
+                    <h2 class="font-orbitron font-bold text-base text-yellow-300 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-microchip text-hwOrange"></i> Hubungkan Robotik (micro:bit)
+                    </h2>
+
+                    <button onclick="connectMicrobit()" class="w-full bg-hwOrange hover:bg-hwOrangeDark text-white font-bold text-xs py-3 px-4 rounded-lg shadow transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plug"></i> Sambungkan Micro:bit Serial/Bluetooth
+                    </button>
+                    <div id="microbit-status" class="text-xs font-semibold text-yellow-100 mt-3">Belum tersambung</div>
+                </div>
+
+                <div class="bg-slate-950/80 p-3 rounded-xl border border-blue-500/30 text-[11px] text-blue-200 space-y-1">
+                    <span class="font-bold text-yellow-300 block">Alur Sensor Gerbang & Slot:</span>
+                    <p>• <b>Gate IN:</b> Sensor IR Gate IN / Kamera AI deteksi mobil $\rightarrow$ Gate IN Kebuka.</p>
+                    <p>• <b>Slot Parkir:</b> Menampilkan status murni ketersediaan A1 & A2.</p>
+                    <p>• <b>Gate OUT:</b> Sensor IR Gate OUT melintas $\rightarrow$ Tagihan muncul $\rightarrow$ Klik Bayar $\rightarrow$ Gate OUT Kebuka.</p>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- GARAGE MAP & PAYMENTS -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- SLOT PARKIR MURNI (5 Cols) -->
+            <section class="lg:col-span-5 space-y-6">
+                <div class="hw-card-blue rounded-2xl p-5 shadow-2xl">
+                    <div class="flex items-center justify-between mb-4 border-b border-blue-500/40 pb-3">
+                        <h2 class="font-orbitron font-black text-lg text-yellow-400 flex items-center gap-2">
+                            <i class="fa-solid fa-square-parking text-hwOrange"></i> DENAH SLOT PARKIR
+                        </h2>
+                        <div class="flex items-center gap-3 text-xs font-bold font-orbitron">
+                            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full led-green block"></span> Kosong</div>
+                            <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full led-red block"></span> Terisi</div>
+                        </div>
+                    </div>
+
+                    <!-- 2 SLOTS: A1 & A2 -->
+                    <div>
+                        <span class="bg-hwOrange px-2 py-0.5 rounded font-orbitron font-bold text-[10px] text-white">STATUS KETERSEDIAAN SLOT</span>
+                        <div class="grid grid-cols-2 gap-4 mt-3">
+                            <div id="slot-card-A1" class="slot-card"></div>
+                            <div id="slot-card-A2" class="slot-card"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ACTIVE TRANSACTIONS & UNPAID BILLS (7 Cols) -->
+            <section class="lg:col-span-7 space-y-6">
+                <div class="hw-card-blue rounded-2xl p-5 shadow-2xl">
+                    <h3 class="font-orbitron font-bold text-base text-yellow-400 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-file-invoice-dollar"></i> KASIR & TAGIHAN KELUAR
+                    </h3>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-950/90 text-yellow-400 font-orbitron text-[11px] border-b border-blue-500/40">
+                                    <th class="p-2.5">LOT</th>
+                                    <th class="p-2.5">IDENTITAS / MOBIL</th>
+                                    <th class="p-2.5">STATUS PARKIR</th>
+                                    <th class="p-2.5">DURASI</th>
+                                    <th class="p-2.5">TOTAL BIAYA</th>
+                                    <th class="p-2.5 text-center">AKSI</th>
+                                </tr>
+                            </thead>
+                            <tbody id="parking-table-body" class="divide-y divide-blue-900/40 text-xs font-semibold"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <!-- CHECKOUT / TAGIHAN MODAL -->
+    <div id="checkout-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white text-slate-900 rounded-2xl max-w-sm w-full p-6 shadow-2xl border-4 border-hwOrange relative animate-bounce-short">
+            <button onclick="closeCheckoutModal()" class="absolute top-3 right-3 text-gray-500 hover:text-black text-lg">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <div class="text-center border-b pb-3 mb-4">
+                <i class="fa-solid fa-receipt text-hwOrange text-4xl mb-1"></i>
+                <h3 class="font-orbitron font-black text-xl text-hwOrangeDark">TAGIHAN MOBIL KELUAR</h3>
+                <p class="text-[10px] text-gray-500 font-orbitron">SENSOR IR KELUAR MENDETEKSI MOBIL MELINTAS</p>
+            </div>
+
+            <!-- QR Code Canvas Container -->
+            <div class="flex justify-center mb-4 p-2 bg-gray-50 rounded-xl border border-gray-200">
+                <div id="qrcode-container"></div>
+            </div>
+
+            <div class="space-y-2 text-xs font-semibold mb-6">
+                <div class="flex justify-between border-b border-dashed pb-1">
+                    <span class="text-gray-500">Slot Parkir:</span>
+                    <span id="modal-slot" class="font-orbitron font-bold text-hwOrangeDark"></span>
+                </div>
+                <div class="flex justify-between border-b border-dashed pb-1">
+                    <span class="text-gray-500">Identitas Mobil:</span>
+                    <span id="modal-car-name" class="font-orbitron font-bold text-slate-900"></span>
+                </div>
+                <div class="flex justify-between border-b border-dashed pb-1">
+                    <span class="text-gray-500">Durasi Parkir:</span>
+                    <span id="modal-duration" class="font-orbitron"></span>
+                </div>
+                <div class="flex justify-between pt-2 text-sm">
+                    <span class="font-bold">TOTAL HARUS DIBAYAR:</span>
+                    <span id="modal-total-fee" class="font-orbitron font-black text-green-600 text-base"></span>
+                </div>
+            </div>
+
+            <button onclick="confirmCheckoutAndPrint()" class="w-full bg-hwOrange hover:bg-hwOrangeDark text-white font-orbitron font-bold py-3 rounded-xl transition shadow flex items-center justify-center gap-2">
+                <i class="fa-solid fa-circle-check text-lg"></i> BAYAR & BUKA GATE KELUAR
+            </button>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION -->
+    <div id="toast" class="fixed bottom-5 right-5 transform translate-y-24 opacity-0 transition-all duration-300 bg-slate-950 text-white border-2 border-hwOrange px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50">
+        <i id="toast-icon" class="fa-solid fa-circle-info text-hwYellow text-xl"></i>
+        <span id="toast-message" class="font-orbitron text-xs">Pesan Notifikasi</span>
+    </div>
+
+    <script>
+        const SLOTS = ['A1', 'A2'];
+        
+        let parkingData = {
+            'A1': { occupied: false, awaitingPayment: false, carName: null, checkIn: null, checkOut: null },
+            'A2': { occupied: false, awaitingPayment: false, carName: null, checkIn: null, checkOut: null },
+        };
+
+        let totalRevenue = 0;
+        let totalCarsCount = 0;
+        let activeCheckoutSlotKey = null;
+        let autoDetectCooldown = false;
+
+        // Micro:bit Variables
+        let bluetoothDevice;
+        let uartCharacteristic;
+        const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const UART_TX_CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+        // Teachable Machine Variables
+        let model, webcam, maxPredictions;
+        let isCamRunning = false;
+
+        window.onload = function() {
+            renderSlots();
+            renderTable();
+            startFeeCounterTimer();
+        };
+
+        // PERTANDA VISUAL TERANG KETIKA GERBANG KETRIGGER TERBUKA
+        function openGateVisual(gateType = "in") {
+            const card = document.getElementById(`card-gate-${gateType}`);
+            const icon = document.getElementById(`icon-gate-${gateType}`);
+            const badge = document.getElementById(`badge-gate-${gateType}`);
+            const desc = document.getElementById(`text-gate-${gateType}-desc`);
+
+            if (card && icon && badge && desc) {
+                card.classList.add('gate-card-active');
+                icon.classList.add('gate-is-open');
+                badge.innerText = "🚨 GERBANG TERBUKA";
+                badge.className = "bg-green-600 text-white border border-green-400 font-orbitron font-black text-[10px] px-2 py-0.5 rounded animate-pulse";
+                desc.innerText = "🚨 SENSOR TERDETEKSI: SILAKAN MELINTAS!";
+                desc.className = "text-xs font-black text-green-400 animate-pulse";
+            }
+
+            setTimeout(() => {
+                if (card && icon && badge && desc) {
+                    card.classList.remove('gate-card-active');
+                    icon.classList.remove('gate-is-open');
+                    badge.innerText = "GERBANG TERTUTUP";
+                    badge.className = "bg-red-950 text-red-400 border border-red-700 font-orbitron font-bold text-[10px] px-2 py-0.5 rounded";
+                    desc.innerText = gateType === "in" ? "Menunggu Mobil Datang..." : "Menunggu Sensor Melintas...";
+                    desc.className = "text-xs font-bold text-yellow-200";
+                }
+            }, 3500);
+        }
+
+        // TRIGGER SENSOR GERBANG IN (SENSOR IR MASUK / TEKAN TOMBOL SIMULASI)
+        function triggerGateInSensor() {
+            triggerAutoEntry("MOBIL SENSOR IN");
+        }
+
+        // TRIGGER SENSOR GERBANG OUT (SENSOR IR KELUAR)
+        function triggerIrExitSensor() {
+            const occupiedSlotKey = SLOTS.find(s => parkingData[s].occupied);
+            
+            if (!occupiedSlotKey) {
+                showToast("Tidak ada mobil yang sedang terparkir!", "error");
+                return;
+            }
+
+            const slot = parkingData[occupiedSlotKey];
+            slot.occupied = false;
+            slot.awaitingPayment = true;
+            slot.checkOut = new Date();
+
+            renderSlots();
+            renderTable();
+
+            openCheckoutModal(occupiedSlotKey);
+            showToast(`Sensor IR Gate OUT Terdeteksi! Tagihan Slot ${occupiedSlotKey} dibuat.`, "error");
+        }
+
+        // CONNECT TO MICRO:BIT
+        async function connectMicrobit() {
+            const statusEl = document.getElementById('microbit-status');
+            const statBadge = document.getElementById('stat-microbit-status');
+            try {
+                statusEl.innerText = "Menghubungkan...";
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'BBC micro:bit' }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+
+                const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService(UART_SERVICE_UUID);
+                
+                uartCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+                
+                const rxChar = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+                rxChar.startNotifications();
+                rxChar.addEventListener('characteristicvaluechanged', handleMicrobitSignal);
+
+                statusEl.innerText = "Tersambung ke micro:bit";
+                statusEl.className = "text-xs font-semibold text-green-400 mt-2";
+                statBadge.innerText = "Tersambung";
+                statBadge.className = "font-orbitron font-bold text-xs text-green-400";
+            } catch (error) {
+                console.error(error);
+                statusEl.innerText = "Gagal tersambung";
+                statusEl.className = "text-xs font-semibold text-red-400 mt-2";
+                statBadge.innerText = "Gagal";
+                statBadge.className = "font-orbitron font-bold text-xs text-red-400";
+            }
+        }
+
+        // BACA SINYAL SENSOR IR DARI MICRO:BIT
+        function handleMicrobitSignal(event) {
+            const value = new TextDecoder().decode(event.target.value).trim();
+            console.log("Sinyal robotik diterima:", value);
+
+            if (value === "EXIT_IR" || value.endsWith("_LEAVE") || value === "GATE_OUT_IR") {
+                triggerIrExitSensor();
+            } else if (value === "ENTER_IR" || value.endsWith("_ENTER") || value === "GATE_IN_IR") {
+                triggerGateInSensor();
+            }
+        }
+
+        async function sendToMicrobit(command) {
+            if (uartCharacteristic) {
+                try {
+                    const encoder = new TextEncoder();
+                    await uartCharacteristic.writeValue(encoder.encode(command + '\n'));
+                } catch (e) {
+                    console.error("Gagal mengirim perintah ke micro:bit", e);
+                }
+            }
+        }
+
+        // TEACHABLE MACHINE CAMERA & LOGIC
+        async function startCamera() {
+            const modelUrlInput = document.getElementById('model-url-input').value.trim();
+            const badge = document.getElementById('model-status-badge');
+
+            if (!modelUrlInput) {
+                alert("Masukkan URL model Teachable Machine terlebih dahulu!");
+                return;
+            }
+
+            badge.innerText = "Memuat model AI...";
+            try {
+                const modelURL = modelUrlInput.endsWith('/') ? modelUrlInput + "model.json" : modelUrlInput + "/model.json";
+                const metadataURL = modelUrlInput.endsWith('/') ? modelUrlInput + "metadata.json" : modelUrlInput + "/metadata.json";
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                const flip = true;
+                webcam = new tmImage.Webcam(200, 200, flip);
+                await webcam.setup();
+                await webcam.play();
+                isCamRunning = true;
+                window.requestAnimationFrame(loopCam);
+
+                document.getElementById('webcam-container').innerHTML = '';
+                document.getElementById('webcam-container').appendChild(webcam.canvas);
+                document.getElementById('cam-placeholder').style.display = 'none';
+
+                badge.innerText = "Model berhasil dimuat";
+                badge.className = "bg-green-950 text-green-400 text-xs px-3 py-1.5 rounded-lg font-semibold border border-green-800";
+            } catch (err) {
+                console.error(err);
+                badge.innerText = "Gagal memuat model";
+                badge.className = "bg-red-950 text-red-400 text-xs px-3 py-1.5 rounded-lg font-semibold border border-red-800";
+            }
+        }
+
+        async function loopCam() {
+            if (isCamRunning) {
+                webcam.update();
+                await predict();
+                window.requestAnimationFrame(loopCam);
+            }
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            const targetClass = document.getElementById('target-class-input').value.trim().toLowerCase();
+            const overlay = document.getElementById('ai-overlay');
+            const percentTag = document.getElementById('ai-percent-tag');
+            const confidenceBar = document.getElementById('confidence-bar');
+            const confidenceText = document.getElementById('confidence-text');
+
+            let matchedProb = 0;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].className.toLowerCase() === targetClass) {
+                    matchedProb = prediction[i].probability;
+                }
+            }
+
+            const percentValue = Math.round(matchedProb * 100);
+            confidenceBar.style.width = `${percentValue}%`;
+            confidenceText.innerText = `${percentValue}%`;
+            percentTag.innerText = `${percentValue}%`;
+
+            if (matchedProb > 0.80) {
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+
+                if (!autoDetectCooldown) {
+                    triggerAutoEntry(targetClass);
+                }
+            } else {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }
+        }
+
+        function triggerAutoEntry(detectedName) {
+            const freeSlot = SLOTS.find(s => !parkingData[s].occupied && !parkingData[s].awaitingPayment);
+            if (!freeSlot) {
+                showToast("Parkir Penuh!", "error");
+                return;
+            }
+
+            autoDetectCooldown = true;
+            
+            // NYALAKAN PERTANDA GERBANG IN TERBUKA!
+            openGateVisual("in");
+            sendToMicrobit('OPEN');
+
+            const carLabel = detectedName ? `Mobil (${detectedName.toUpperCase()})` : `Mobil ${freeSlot}`;
+
+            parkingData[freeSlot] = {
+                occupied: true,
+                awaitingPayment: false,
+                carName: carLabel,
+                checkIn: new Date(),
+                checkOut: null
+            };
+
+            totalCarsCount++;
+            renderSlots();
+            renderTable();
+            showToast(`Pertanda: Gate IN Terbuka! Mobil diparkir ke slot ${freeSlot}.`, "success");
+
+            setTimeout(() => {
+                sendToMicrobit('CLOSE');
+                autoDetectCooldown = false;
+            }, 4000);
+        }
+
+        function stopCamera() {
+            if (webcam) {
+                webcam.stop();
+            }
+            isCamRunning = false;
+            document.getElementById('cam-placeholder').style.display = 'block';
+            document.getElementById('webcam-container').innerHTML = '';
+            document.getElementById('ai-overlay').classList.add('hidden');
+            document.getElementById('confidence-bar').style.width = '0%';
+            document.getElementById('confidence-text').innerText = '0%';
+        }
+
+        function calculateFee(checkInTime, checkOutTime) {
+            const endTime = checkOutTime ? new Date(checkOutTime) : new Date();
+            const durationMs = endTime - new Date(checkInTime);
+            const totalHours = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60)));
+            return totalHours <= 1 ? 5000 : 5000 + (totalHours - 1) * 3000;
+        }
+
+        function formatDuration(checkInTime, checkOutTime) {
+            const endTime = checkOutTime ? new Date(checkOutTime) : new Date();
+            const diffSecs = Math.floor((endTime - new Date(checkInTime)) / 1000);
+            const hrs = Math.floor(diffSecs / 3600);
+            const mins = Math.floor((diffSecs % 3600) / 60);
+            const secs = diffSecs % 60;
+            return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function renderSlots() {
+            let activeCount = 0;
+            let freeSlotNames = [];
+
+            SLOTS.forEach(slotKey => {
+                const slot = parkingData[slotKey];
+                const card = document.getElementById(`slot-card-${slotKey}`);
+                if (!card) return;
+
+                if (slot.occupied) {
+                    activeCount++;
+                    card.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <span class="w-3 h-3 rounded-full led-red block"></span>
+                            <span class="font-orbitron text-[9px] text-red-300 font-bold">TERISI</span>
+                        </div>
+                        <div class="text-center my-3">
+                            <span class="font-orbitron font-black text-2xl text-yellow-400 block">${slotKey}</span>
+                            <span class="text-[10px] text-gray-200 font-bold block truncate max-w-[120px]">${slot.carName}</span>
+                            <i class="fa-solid fa-car-side text-2xl text-hwOrange my-1 animate-pulse"></i>
+                        </div>
+                    `;
+                    card.className = "slot-card bg-red-950/40 border-2 border-red-500/80 rounded-xl p-3 relative flex flex-col items-center justify-between h-36 transition-all shadow-md";
+                } else if (slot.awaitingPayment) {
+                    card.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <span class="w-3 h-3 rounded-full led-green block"></span>
+                            <span class="font-orbitron text-[9px] text-yellow-300 font-bold animate-pulse">MENUNGGU BAYAR</span>
+                        </div>
+                        <div class="text-center my-3">
+                            <span class="font-orbitron font-black text-2xl text-yellow-400 block">${slotKey}</span>
+                            <span class="text-[10px] text-red-300 font-bold block truncate max-w-[120px]">${slot.carName}</span>
+                            <i class="fa-solid fa-receipt text-2xl text-yellow-300 my-1"></i>
+                        </div>
+                    `;
+                    card.className = "slot-card bg-yellow-950/40 border-2 border-yellow-500/80 rounded-xl p-3 relative flex flex-col items-center justify-between h-36 transition-all shadow-md";
+                } else {
+                    freeSlotNames.push(slotKey);
+                    card.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <span class="w-3 h-3 rounded-full led-green block"></span>
+                            <span class="font-orbitron text-[9px] text-green-300 font-bold">KOSONG</span>
+                        </div>
+                        <div class="text-center my-4">
+                            <span class="font-orbitron font-black text-4xl text-slate-300 block">${slotKey}</span>
+                        </div>
+                    `;
+                    card.className = "slot-card bg-slate-950/80 border-2 border-slate-700 rounded-xl p-3 relative flex flex-col items-center justify-between h-36 transition-all shadow-md";
+                }
+            });
+
+            const freeCount = freeSlotNames.length;
+            document.getElementById('vms-count').innerText = `${freeCount} / ${SLOTS.length}`;
+            document.getElementById('stat-active-sessions').innerText = activeCount;
+            document.getElementById('stat-total-cars').innerText = totalCarsCount;
+
+            const vmsStatus = document.getElementById('vms-status');
+            const vmsList = document.getElementById('vms-slots-list');
+
+            if (freeCount === 0) {
+                vmsStatus.innerText = "PARKIR PENUH";
+                vmsStatus.className = "font-orbitron font-bold text-base text-red-500 animate-pulse";
+                vmsList.innerText = "Slot tidak tersedia";
+            } else {
+                vmsStatus.innerText = "SLOT TERSEDIA";
+                vmsStatus.className = "font-orbitron font-bold text-base text-green-400 animate-pulse";
+                vmsList.innerText = "Free: " + freeSlotNames.join(', ');
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('parking-table-body');
+            tbody.innerHTML = '';
+            let rowsCount = 0;
+
+            SLOTS.forEach(slotKey => {
+                const slot = parkingData[slotKey];
+                if (slot.occupied || slot.awaitingPayment) {
+                    rowsCount++;
+                    const duration = formatDuration(slot.checkIn, slot.checkOut);
+                    const fee = calculateFee(slot.checkIn, slot.checkOut).toLocaleString('id-ID');
+
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-blue-900/30 border-b border-blue-900/40";
+                    
+                    let statusBadgeHTML = slot.occupied 
+                        ? `<span class="text-red-400 font-bold"><i class="fa-solid fa-car"></i> Parkir di Slot</span>` 
+                        : `<span class="text-yellow-300 font-bold animate-pulse"><i class="fa-solid fa-person-walking-arrow-right"></i> Terdeteksi IR Keluar</span>`;
+
+                    let actionBtnHTML = slot.awaitingPayment
+                        ? `<button onclick="openCheckoutModal('${slotKey}')" class="bg-hwOrange hover:bg-hwOrangeDark text-white font-orbitron font-bold px-3 py-1.5 rounded text-[11px] transition flex items-center justify-center gap-1 mx-auto shadow animate-pulse">
+                            <i class="fa-solid fa-wallet"></i> BAYAR (${slotKey})
+                           </button>`
+                        : `<span class="text-gray-400 text-[10px]">Menunggu IR Keluar</span>`;
+
+                    tr.innerHTML = `
+                        <td class="p-2.5 font-orbitron font-bold text-yellow-400">${slotKey}</td>
+                        <td class="p-2.5 font-orbitron font-bold text-white">${slot.carName}</td>
+                        <td class="p-2.5 font-orbitron text-xs">${statusBadgeHTML}</td>
+                        <td class="p-2.5 font-orbitron text-blue-200" id="duration-${slotKey}">${duration}</td>
+                        <td class="p-2.5 font-orbitron font-bold text-green-400" id="fee-${slotKey}">Rp ${fee}</td>
+                        <td class="p-2.5 text-center">${actionBtnHTML}</td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+
+            if (rowsCount === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400 font-orbitron text-xs">Belum ada aktivitas parkir.</td></tr>`;
+            }
+        }
+
+        function openCheckoutModal(slotKey) {
+            const slot = parkingData[slotKey];
+            if (!slot || (!slot.occupied && !slot.awaitingPayment)) return;
+
+            activeCheckoutSlotKey = slotKey;
+            const feeVal = calculateFee(slot.checkIn, slot.checkOut);
+
+            document.getElementById('modal-slot').innerText = `Slot ${slotKey}`;
+            document.getElementById('modal-car-name').innerText = slot.carName;
+            document.getElementById('modal-duration').innerText = formatDuration(slot.checkIn, slot.checkOut);
+            document.getElementById('modal-total-fee').innerText = `Rp ${feeVal.toLocaleString('id-ID')}`;
+
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: `HOTWHEELS_PAY:${slotKey}:${slot.carName}:${feeVal}`,
+                width: 120,
+                height: 120
+            });
+
+            document.getElementById('checkout-modal').classList.remove('hidden');
+        }
+
+        function closeCheckoutModal() {
+            document.getElementById('checkout-modal').classList.add('hidden');
+            activeCheckoutSlotKey = null;
+        }
+
+        // KETIKA TOMBOL BAYAR DI-KLIK -> PERTANDA GATE OUT TERBUKA!
+        function confirmCheckoutAndPrint() {
+            if (!activeCheckoutSlotKey) return;
+            const slotKey = activeCheckoutSlotKey;
+            const slot = parkingData[slotKey];
+            const feeVal = calculateFee(slot.checkIn, slot.checkOut);
+
+            totalRevenue += feeVal;
+            document.getElementById('stat-revenue').innerText = `Rp ${totalRevenue.toLocaleString('id-ID')}`;
+
+            closeCheckoutModal();
+            
+            // PERTANDA VISUAL TERANG KETIKA GATE OUT TERBUKA!
+            openGateVisual("out");
+            sendToMicrobit('OPEN_OUT');
+
+            setTimeout(() => {
+                parkingData[slotKey] = { occupied: false, awaitingPayment: false, carName: null, checkIn: null, checkOut: null };
+                sendToMicrobit('CLOSE_OUT');
+                renderSlots();
+                renderTable();
+                showToast(`Pembayaran Rp ${feeVal.toLocaleString('id-ID')} Berhasil! Gate OUT Terbuka.`, "success");
+            }, 1000);
+        }
+
+        function startFeeCounterTimer() {
+            setInterval(() => {
+                SLOTS.forEach(slotKey => {
+                    const slot = parkingData[slotKey];
+                    if (slot.occupied && !slot.awaitingPayment) {
+                        const durationEl = document.getElementById(`duration-${slotKey}`);
+                        const feeEl = document.getElementById(`fee-${slotKey}`);
+
+                        if (durationEl) durationEl.innerText = formatDuration(slot.checkIn, slot.checkOut);
+                        if (feeEl) feeEl.innerText = `Rp ${calculateFee(slot.checkIn, slot.checkOut).toLocaleString('id-ID')}`;
+                    }
+                });
+            }, 1000);
+        }
+
+        function showToast(message, type = "info") {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.innerText = message;
+            
+            if (type === "success") {
+                toastIcon.className = "fa-solid fa-circle-check text-green-400 text-xl";
+                toast.className = "fixed bottom-5 right-5 transform translate-y-0 opacity-100 transition-all duration-300 bg-slate-950 text-white border-2 border-green-500 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50";
+            } else if (type === "error") {
+                toastIcon.className = "fa-solid fa-circle-xmark text-red-400 text-xl";
+                toast.className = "fixed bottom-5 right-5 transform translate-y-0 opacity-100 transition-all duration-300 bg-slate-950 text-white border-2 border-red-500 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50";
+            } else {
+                toastIcon.className = "fa-solid fa-circle-info text-hwYellow text-xl";
+                toast.className = "fixed bottom-5 right-5 transform translate-y-0 opacity-100 transition-all duration-300 bg-slate-950 text-white border-2 border-hwOrange px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50";
+            }
+
+            setTimeout(() => {
+                toast.className = "fixed bottom-5 right-5 transform translate-y-24 opacity-0 transition-all duration-300 bg-slate-950 text-white border-2 border-hwOrange px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50";
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
